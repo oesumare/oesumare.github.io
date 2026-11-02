@@ -53,7 +53,7 @@
     // Keep the selected value centered above its point and within the SVG bounds.
     const estimatedHalfWidth = tooltip.textContent.length * 5;
     tooltip.setAttribute("x", String(Math.max(plot.left + estimatedHalfWidth, Math.min(plot.right - estimatedHalfWidth, pointX))));
-    tooltip.setAttribute("y", String(Math.max(22, pointY - 24)));
+    // Fixed row above the plot prevents any overlap with the series.\n    tooltip.setAttribute("y", "19");
     tooltip.removeAttribute("hidden");
   };
 
