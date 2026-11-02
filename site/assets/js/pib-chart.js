@@ -50,8 +50,10 @@
     const pointX = xFor(selectedIndex);
     const pointY = yFor(observation.value);
     tooltip.textContent = `${observation.year} · ${formatBillions(observation.value)}`;
-    tooltip.setAttribute("x", String(pointX < 500 ? pointX + 12 : pointX - 220));
-    tooltip.setAttribute("y", String(Math.max(22, pointY - 15)));
+    // Keep the selected value centered above its point and within the SVG bounds.
+    const estimatedHalfWidth = tooltip.textContent.length * 5;
+    tooltip.setAttribute("x", String(Math.max(plot.left + estimatedHalfWidth, Math.min(plot.right - estimatedHalfWidth, pointX))));
+    tooltip.setAttribute("y", String(Math.max(22, pointY - 24)));
     tooltip.removeAttribute("hidden");
   };
 
@@ -89,16 +91,15 @@
 
     [0, 1, 2, 3, 8, 13, 18, observations.length - 1].forEach((index) => {
       const observation = observations[index];
-      const earlyYear = index < 4;
-      const labelRow = earlyYear ? Math.floor(index / 2) : 0;
+
       svg.append(svgElement("line", {
         x1: xFor(index), y1: plot.bottom, x2: xFor(index), y2: plot.bottom + 4,
         class: "pib-chart__axis-tick", "aria-hidden": "true"
       }));
       svg.append(svgElement("text", {
         x: xFor(index),
-        y: plot.bottom + 24 + labelRow * 17,
-        class: `pib-chart__axis-label${earlyYear ? " pib-chart__axis-label--early" : ""}`,
+        y: plot.bottom + 24,
+        class: `pib-chart__axis-label${index < 4 ? " pib-chart__axis-label--early" : ""}`,
         "text-anchor": "middle"
       }, String(observation.year)));
     });
@@ -116,7 +117,7 @@
     svg.append(svgElement("polyline", { points, class: "pib-chart__series", "aria-hidden": "true" }));
     svg.append(svgElement("circle", { cx: xFor(0), cy: yFor(observations[0].value), r: 5, class: "pib-chart__marker", "data-pib-marker": "" }));
     svg.querySelector(".pib-chart__marker").setAttribute("hidden", "");
-    svg.append(svgElement("text", { class: "pib-chart__tooltip", "data-pib-tooltip": "", "aria-hidden": "true", hidden: "" }));
+    svg.append(svgElement("text", { class: "pib-chart__tooltip", "data-pib-tooltip": "", "text-anchor": "middle", "aria-hidden": "true", hidden: "" }));
     svg.removeAttribute("hidden");
     status.hidden = true;
     setSelection(observations.length - 1);
