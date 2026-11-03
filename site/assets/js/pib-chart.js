@@ -9,52 +9,56 @@
   const status = section.querySelector("[data-pib-status]");
   const sourceUrl = "data/pib-municipal-historico.json?v=20261028-1999-2023";
   const ns = "http://www.w3.org/2000/svg";
-  const width = 900;
-  const height = 330;
-  const plot = { left: 82, right: 886, top: 28, bottom: 276 };
   let observations = [];
   let selectedIndex = 0;
+  let width = 900;
+  let plot = { left: 82, right: 886, top: 56, bottom: 276 };
+  const height = 330;
 
-  const svgElement = (name, attributes = {}, content = "") => {
-    const element = document.createElementNS(ns, name);
-    Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value)));
-    if (content) element.textContent = content;
-    return element;
+  const element = (tag, attrs = {}, value = "") => {
+    const node = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([key, val]) => node.setAttribute(key, String(val)));
+    if (value) node.textContent = value;
+    return node;
   };
-
-  const toBillions = (valueInThousandReais) => valueInThousandReais / 1_000_000;
-  const formatBillions = (valueInThousandReais) =>
-    `R$ ${toBillions(valueInThousandReais).toLocaleString("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })} bi`;
-
+  const billions = (value) => value / 1_000_000;
+  const format = (value) => `R$ ${billions(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2
+  })} bi`;
   const xFor = (index) => plot.left + index * (plot.right - plot.left) / (observations.length - 1);
-  const yFor = (value) => plot.bottom - toBillions(value) / 20 * (plot.bottom - plot.top);
+  const yFor = (value) => plot.bottom - billions(value) / 20 * (plot.bottom - plot.top);
 
-  const setSelection = (index) => {
+  const select = (index) => {
     selectedIndex = Math.max(0, Math.min(observations.length - 1, index));
     const observation = observations[selectedIndex];
-    const label = `${observation.year} · ${formatBillions(observation.value)} · preços correntes`;
-    readout.textContent = label;
+    const x = xFor(selectedIndex);
+    const y = yFor(observation.value);
+    const label = `${observation.year} · ${format(observation.value)}`;
+    readout.textContent = `${label} · preços correntes`;
     readout.hidden = false;
     svg.setAttribute("aria-valuenow", String(observation.year));
-    svg.setAttribute("aria-valuetext", label);
+    svg.setAttribute("aria-valuetext", readout.textContent);
 
     const marker = svg.querySelector("[data-pib-marker]");
-    marker.setAttribute("cx", String(xFor(selectedIndex)));
-    marker.setAttribute("cy", String(yFor(observation.value)));
-    marker.removeAttribute("hidden");
+    marker.setAttribute("cx", x);
+    marker.setAttribute("cy", y);
 
+    // A compact callout follows the point without crossing the curve.
     const tooltip = svg.querySelector("[data-pib-tooltip]");
-    const pointX = xFor(selectedIndex);
-    const pointY = yFor(observation.value);
-    tooltip.textContent = `${observation.year} · ${formatBillions(observation.value)}`;
-    // Keep the selected value centered above its point and within the SVG bounds.
-    const estimatedHalfWidth = tooltip.textContent.length * 5;
-    tooltip.setAttribute("x", String(Math.max(plot.left + estimatedHalfWidth, Math.min(plot.right - estimatedHalfWidth, pointX))));
-    // Fixed row above the plot prevents any overlap with the series.
-    tooltip.setAttribute("y", "19");
+    const labelText = tooltip.querySelector("text");
+    const labelBox = tooltip.querySelector("rect");
+    const fontSize = width <= 480 ? 13 : 15;
+    const labelWidth = label.length * fontSize * 0.55 + 20;
+    const labelHeight = fontSize + 14;
+    const centerX = Math.max(plot.left + labelWidth / 2, Math.min(plot.right - labelWidth / 2, x));
+    const boxY = Math.max(4, y - labelHeight - 15);
+    labelBox.setAttribute("x", centerX - labelWidth / 2);
+    labelBox.setAttribute("y", boxY);
+    labelBox.setAttribute("width", labelWidth);
+    labelBox.setAttribute("height", labelHeight);
+    labelText.setAttribute("x", centerX);
+    labelText.setAttribute("y", boxY + labelHeight / 2 + fontSize * 0.35);
+    labelText.textContent = label;
     tooltip.removeAttribute("hidden");
   };
 
@@ -62,97 +66,115 @@
     const point = svg.createSVGPoint();
     point.x = event.clientX;
     point.y = event.clientY;
-    const local = point.matrixTransform(svg.getScreenCTM().inverse());
-    const position = (local.x - plot.left) / (plot.right - plot.left) * (observations.length - 1);
-    return Math.round(Math.max(0, Math.min(observations.length - 1, position)));
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return selectedIndex;
+    const local = point.matrixTransform(ctm.inverse());
+    return Math.round(Math.max(0, Math.min(observations.length - 1,
+      (local.x - plot.left) / (plot.right - plot.left) * (observations.length - 1))));
   };
 
-  const render = (data) => {
-    observations = data.observations;
-    if (!Array.isArray(observations) || observations.length < 2) throw new Error("Série inválida");
-
+  const render = () => {
+    if (observations.length < 2) return;
+    width = Math.min(900, Math.max(320, Math.round(section.getBoundingClientRect().width || 900)));
+    const mobile = width <= 480;
+    plot = { left: mobile ? 58 : 82, right: width - (mobile ? 12 : 14), top: 56, bottom: 276 };
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    svg.setAttribute("aria-valuemin", String(observations[0].year));
-    svg.setAttribute("aria-valuemax", String(observations[observations.length - 1].year));
-
-    const title = svgElement("title", { id: "pib-chart-svg-title" }, "Evolução anual do PIB municipal de Sumaré");
-    const description = svgElement(
-      "desc",
-      { id: "pib-chart-svg-description" },
-      "Série anual a preços correntes, de 1999 a 2023. Há uma separação entre os dados anteriores e posteriores a 2002. Ao selecionar um ano, seu valor aparece junto ao ponto no gráfico. Use as setas esquerda e direita para percorrer os anos."
-    );
-    svg.append(title, description);
+    svg.setAttribute("aria-valuemin", observations[0].year);
+    svg.setAttribute("aria-valuemax", observations[observations.length - 1].year);
+    svg.replaceChildren(element("desc", { id: "pib-chart-svg-description" },
+      "Evolução anual do PIB municipal de Sumaré, de 1999 a 2023, a preços correntes. " +
+      "Dados até 2001 seguem metodologia diferente. Use as setas para selecionar cada ano."));
 
     [0, 5, 10, 15, 20].forEach((tick) => {
       const y = yFor(tick * 1_000_000);
-      svg.append(svgElement("line", { x1: plot.left, y1: y, x2: plot.right, y2: y, class: "pib-chart__grid" }));
-      const label = tick === 0 ? "0" : `R$ ${tick} bi`;
-      svg.append(svgElement("text", { x: plot.left - 12, y: y + 4, class: "pib-chart__axis-label pib-chart__axis-label--y", "text-anchor": "end" }, label));
-    });
-
-    [0, 1, 2, 3, 8, 13, 18, observations.length - 1].forEach((index) => {
-      const observation = observations[index];
-
-      svg.append(svgElement("line", {
-        x1: xFor(index), y1: plot.bottom, x2: xFor(index), y2: plot.bottom + 4,
-        class: "pib-chart__axis-tick", "aria-hidden": "true"
+      svg.append(element("line", {
+        x1: plot.left, y1: y, x2: plot.right, y2: y, class: "pib-chart__grid"
       }));
-      svg.append(svgElement("text", {
-        x: xFor(index),
-        y: plot.bottom + 24,
-        class: `pib-chart__axis-label${index < 4 ? " pib-chart__axis-label--early" : ""}`,
-        "text-anchor": "middle"
-      }, String(observation.year)));
+      svg.append(element("text", {
+        x: plot.left - 10, y: y + 4, "text-anchor": "end",
+        class: "pib-chart__axis-label pib-chart__axis-label--y"
+      }, tick ? `R$ ${tick} bi` : "0"));
     });
 
-    svg.append(svgElement("rect", {
-      x: plot.left,
-      y: plot.top,
-      width: plot.right - plot.left,
-      height: plot.bottom - plot.top,
-      class: "pib-chart__interaction",
-      "aria-hidden": "true"
-    }));
+    const start = observations[0].year;
+    const end = observations[observations.length - 1].year;
+    const step = mobile ? 8 : 4;
+    for (let year = start; year <= end; year += step) {
+      const index = observations.findIndex((item) => item.year === year);
+      if (index < 0) continue;
+      svg.append(element("line", {
+        x1: xFor(index), y1: plot.bottom, x2: xFor(index), y2: plot.bottom + 4,
+        class: "pib-chart__axis-tick"
+      }));
+      svg.append(element("text", {
+        x: xFor(index), y: plot.bottom + 23, "text-anchor": "middle",
+        class: "pib-chart__axis-label"
+      }, String(year)));
+    }
 
-    const points = observations.map((observation, index) => `${xFor(index)},${yFor(observation.value)}`).join(" ");
-    svg.append(svgElement("polyline", { points, class: "pib-chart__series", "aria-hidden": "true" }));
-    svg.append(svgElement("circle", { cx: xFor(0), cy: yFor(observations[0].value), r: 5, class: "pib-chart__marker", "data-pib-marker": "" }));
-    svg.querySelector(".pib-chart__marker").setAttribute("hidden", "");
-    svg.append(svgElement("text", { class: "pib-chart__tooltip", "data-pib-tooltip": "", "text-anchor": "middle", "aria-hidden": "true", hidden: "" }));
+    svg.append(element("rect", {
+      x: plot.left, y: plot.top, width: plot.right - plot.left,
+      height: plot.bottom - plot.top, class: "pib-chart__interaction", "aria-hidden": "true"
+    }));
+    svg.append(element("polyline", {
+      points: observations.map((item, index) => `${xFor(index)},${yFor(item.value)}`).join(" "),
+      class: "pib-chart__series", "aria-hidden": "true"
+    }));
+    svg.append(element("circle", {
+      r: 5, class: "pib-chart__marker", "data-pib-marker": "", "aria-hidden": "true"
+    }));
+    const tooltip = element("g", { "data-pib-tooltip": "", "aria-hidden": "true" });
+    tooltip.append(
+      element("rect", { class: "pib-chart__tooltip-box", rx: 6, ry: 6 }),
+      element("text", { class: "pib-chart__tooltip", "text-anchor": "middle" })
+    );
+    svg.append(tooltip);
     svg.removeAttribute("hidden");
     status.hidden = true;
-    setSelection(observations.length - 1);
+    select(selectedIndex);
   };
 
   svg.addEventListener("pointermove", (event) => {
-    if (observations.length) setSelection(nearestIndex(event));
+    if (observations.length) select(nearestIndex(event));
   });
   svg.addEventListener("pointerdown", (event) => {
     if (!observations.length) return;
     svg.classList.add("is-pointer-focused");
     svg.setPointerCapture?.(event.pointerId);
-    setSelection(nearestIndex(event));
+    select(nearestIndex(event));
   });
   svg.addEventListener("blur", () => svg.classList.remove("is-pointer-focused"));
   svg.addEventListener("keydown", (event) => {
     if (!observations.length) return;
     svg.classList.remove("is-pointer-focused");
     let next = selectedIndex;
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") next -= 1;
-    else if (event.key === "ArrowRight" || event.key === "ArrowUp") next += 1;
+    if (event.key === "ArrowLeft" || event.key === "ArrowDown") next--;
+    else if (event.key === "ArrowRight" || event.key === "ArrowUp") next++;
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = observations.length - 1;
     else return;
     event.preventDefault();
-    setSelection(next);
+    select(next);
   });
 
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => render()).observe(section);
+  } else {
+    window.addEventListener("resize", render);
+  }
   fetch(sourceUrl)
     .then((response) => {
       if (!response.ok) throw new Error("Falha ao carregar a série");
       return response.json();
     })
-    .then(render)
+    .then((data) => {
+      observations = data.observations;
+      if (!Array.isArray(observations) || observations.length < 2) {
+        throw new Error("Série inválida");
+      }
+      selectedIndex = observations.length - 1;
+      render();
+    })
     .catch(() => {
       status.textContent = "Não foi possível carregar a série histórica. Consulte a fonte oficial do IBGE.";
       status.hidden = false;
